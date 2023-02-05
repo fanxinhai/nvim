@@ -1,0 +1,713 @@
+Lua-guide
+
+                          Guide to using Lua in Nvim
+                          在 Nvim 中使用 Lua 的指南
+
+Main
+Commands index
+Quick reference
+
+Introduction
+    Some words on the API
+Using Lua
+    Using Lua files on startup
+    Lua modules
+    See also:
+Using Vim commands and functions from Lua
+    Vim commands
+    Vimscript functions
+    See also:
+Variables
+    See also:
+Options
+    vim.opt
+    vim.o
+    See also:
+Mappings
+    Creating mappings
+    Removing mappings
+    See also:
+Autocommands
+    Creating autocommands
+    Grouping autocommands
+    Deleting autocommands
+    See also
+User commands
+    Creating user commands
+    Deleting user commands
+Credits
+
+
+Introduction
+介绍
+This guide will go through the basics of using Lua in Neovim. It is not meant to be a comprehensive encyclopedia of all available features, nor will it detail all intricacies. Think of it as a survival kit -- the bare minimum needed to know to comfortably get started on using Lua in Neovim.
+本指南将介绍在Neovim中使用Lua的基础知识。但并不意味着它是一个具有所有可用功能的百科全书，也不会详细说明所有复杂的问题。你可以把它看作是一个生存工具包——你需要知道如何在Neovim中舒适地开始使用Lua。 
+
+An important thing to note is that this isn't a guide to the Lua language itself. Rather, this is a guide on how to configure and modify Neovim through the Lua language and the functions we provide to help with this. Take a look at luaref and lua-concepts if you'd like to learn more about Lua itself. Similarly, this guide assumes some familiarity with the basics of Neovim (commands, options, mappings, autocommands), which are covered in the user-manual.
+需要注意的重要一点是，这不是Lua语言本身的指南。相反，这是一个关于如何通过Lua语言以及我们提供的帮助函数配置和修改Neovim的指南，如果您想了解更多关于Lua本身的知识，请查看lua参考手册和Lua概念。同样，本指南假设您对Neovim的基础知识(命令、选项、映射、自动命令)有一定的了解，这些内容在用户手册中都有介绍。 
+
+Some words on the API                    lua-guide-api
+一些关于API的词语
+
+The purpose of this guide is to introduce the different ways of interacting with Neovim through Lua (the "API"). This API consists of three different layers:
+本指南的目的是介绍通过Lua(“API”)与Neovim交互的不同方式。这个API由三个不同的层组成:
+
+1. The "Vim API" inherited from Vim: ex-commands and builtin-functions as well as user-functions in Vimscript. These are accessed through vim.cmd() and vim.fn respectively, which are discussed under lua-guide-vimscript below.
+1. “Vim API”继承自Vim: ex-commands和builtin-functions以及Vimscript中的user-functions。这些可以通过在下面lua-guide-vimscript讨论的vim.cmd()和vim.fn分别访问。
+
+2. The "Neovim API" written in C for use in remote plugins and GUIs; see api. These functions are accessed through vim.api.
+用C语言编写的用于远程插件和gui的“Neovim API”;参阅api.这些函数是通过vim.api访问的。
+
+3. The "Lua API" written in and specifically for Lua. These are any other functions accessible through vim.* not mentioned already; see lua-stdlib.
+“Lua API”是专门为Lua编写的。这些是之前没有提到的通过vim.*访问的函数;参阅lua-stdlib。
+
+This distinction is important, as API functions inherit behavior from their original layer: For example, Neovim API functions always need all arguments to be specified even if Lua itself allows omitting arguments (which are then passed as nil); and Vim API functions can use 0-based indexing even if Lua arrays are 1-indexed by default.
+这种区别很重要，因为API函数从原始层继承行为:例如，Neovim API函数总是需要指定所有参数，即使Lua本身允许省略参数(作为nil传递); Vim API函数可以使用基于0的索引，即使数组默认为1索引。
+
+Through this, any possible interaction can be done through Lua without writing a complete new API from scratch. For this reason, functions are usually not duplicated between layers unless there is a significant benefit in functionality or performance (e.g., you can map Lua functions directly through nvim_create_autocmd() but not through :autocmd). In case there are multiple ways of achieving the same thing, this guide will only cover what is most convenient to use from Lua.
+通过这种方式，任何可能的交互都可以通过Lua完成，而无需从头编写一个完整的新API。因此，函数通常不会在层之间重复，除非在功能或性能上大有裨益(例如，你可以直接通过nvim_create_autocmd()映射Lua函数，但不能通过:autocmd)。
+
+Using Lua                    lua-guide-using-Lua
+使用lua
+
+To run Lua code from the Neovim command line, use the :lua command:
+要从Neovim命令行运行Lua代码，请使用:Lua命令:
+:lua print("Hello!")
+
+Note: each :lua command has its own scope and variables declared with the local keyword are not accessible outside of the command. This won't work:
+注意:每个:lua命令都有自己的作用域，使用local关键字声明的变量在命令之外是不可访问的。这将不起作用:
+:lua local foo = 1
+:lua print(foo)
+" prints "nil" instead of "1"
+
+You can also use :lua=, which is the same as :lua vim.pretty_print(...), to conveniently check the value of a variable or a table:
+你也可以使用:lua=，它与:lua vim.pretty_print(…)相同，来方便地检查变量或表的值:
+:lua=package
+
+To run a Lua script in an external file, you can use the :source command exactly like for a Vimscript file:
+:source ~/programs/baz/myluafile.lua
+要在外部文件中运行Lua脚本，你可以像Vimscript文件一样使用:source命令:
+
+Finally, you can include Lua code in a Vimscript file by putting it inside a lua-heredoc block:
+最后，你可以在Vimscript文件中包含Lua代码，方法是把它放在Lua-heredoc块中:
+lua << EOF
+  local tbl = {1, 2, 3}
+  for k, v in pairs(tbl) do
+    print(v)
+  end
+EOF
+
+Using Lua files on startup               lua-guide-config
+
+Neovim supports using init.vim or init.lua as the configuration file, but not both at the same time. This should be placed in your config directory, which is typically ~/.config/nvim for Linux, BSD, or macOS, and ~/AppData/Local/nvim/ for Windows. Note that you can use Lua in init.vim and Vimscript in init.lua, which will be covered below.
+Neovim支持使用init.Vim或init.Lua作为配置文件，但不能同时使用。这应该放在您的配置目录中，对于Linux、BSD或macOS通常是~/.config/nvim，对于Windows通常是~/AppData/Local/nvim/。
+
+If you'd like to run any other Lua script on startup automatically, then you can simply put it in plugin/ in your 'runtimepath'.
+如果你想在启动时自动运行任何其他Lua脚本，那么你可以简单地把它放在'runtimepath'的plugin/目录中。
+
+Lua modules                      lua-guide-modules
+Lua模块
+
+If you want to load Lua files on demand, you can place them in the lua/ directory in your 'runtimepath' and load them with require. (This is the Lua equivalent of Vimscript's autoload mechanism.)
+如果你想按需加载Lua文件，你可以把它们放在“runtimepath”的Lua/ 目录下，然后用require加载它们。(这相当于Vimscript的自动加载机制。)
+
+Let's assume you have the following directory structure:
+让我们假设你有如下的目录结构:
+~/.config/nvim
+|-- after/
+|-- ftplugin/
+|-- lua/
+|  |-- myluamodule.lua
+|  |-- other_modules/
+|     |-- anothermodule.lua
+|     |-- init.lua
+|-- plugin/
+|-- syntax/
+|-- init.vim
+
+Then the following Lua code will load myluamodule.lua:
+下面的Lua代码将加载mylumodule.lua:
+require("myluamodule")
+
+Note the absence of a .lua extension.
+注意没有.lua扩展名。
+
+Similarly, loading other_modules/anothermodule.lua is done via
+类似地，加载other_modules/anothermodule.lua是通过
+require('other_modules/anothermodule')
+-- 或者
+require('other_modules.anothermodule')
+
+Note how "submodules" are just subdirectories; the . is equivalent to the path separator / (even on Windows).
+注意“子模块”只是子目录; .相当于路径分隔符/(即使在Windows上)。
+
+A folder containing an init.lua file can be required directly, without having to specify the name of the file:
+可以直接require包含init.lua文件的文件夹，而不需要指定文件名:
+require('other_modules') -- loads other_modules/init.lua
+
+Requiring a nonexistent module or a module which contains syntax errors aborts the currently executing script. pcall() may be used to catch such errors. The following example tries to load the module_with_error and only calls one of its functions if this succeeds and prints an error message otherwise:
+require不存在的模块或包含语法错误的模块将中止当前正在执行的脚本。Pcall()可以用来捕捉这样的错误。下面的示例尝试加载module_with_error，如果加载成功，只调用它的一个函数，否则打印错误消息:
+
+local ok, mymod = pcall(require, 'module_with_error')
+if not ok then
+  print("Module had an error")
+else
+  mymod.function()
+end
+
+In contrast to :source, require() not only searches through all lua/ directories under 'runtimepath', it also cache the module on first use. Calling require() a second time will therefore _not_ execute the script again and instead return the cached file. To rerun the file, you need to remove it from the cache manually first:
+与:source相反，require()不仅搜索'runtimepath'下的所有lua/目录，还会在第一次使用时缓存模块。因此，第二次调用require()将不会再次执行脚本，而是返回缓存文件。要重新运行该文件，您需要手动从缓存中删除它:
+package.loaded['myluamodule'] = nil
+require('myluamodule')    -- read and execute the module again from disk
+
+See also:
+lua-require
+luaref-pcall()
+
+Using Vim commands and functions from Lua        lua-guide-vimscript
+使用Lua中的Vim命令和函数
+
+All Vim commands and functions are accessible from Lua.
+所有Vim命令和函数都可以从Lua中访问。
+
+Vim commands                         lua-guide-vim-commands
+
+To run an arbitrary Vim command from Lua, pass it as a string to vim.cmd():
+要从Lua运行任意Vim命令，将其作为字符串传递给Vim.cmd():
+vim.cmd("colorscheme habamax")
+
+Note that special characters will need to be escaped with backslashes:
+注意，特殊字符需要用反斜杠转义:
+vim.cmd("%s/\\Vfoo/bar/g")
+
+An alternative is to use a literal string (see luaref-literal) delimited by double brackets as in [[ ]] 
+另一种方法是使用由双中括号界定的文字字符串(参见luaref-literal)，如[[]]
+vim.cmd([[%s/\Vfoo/bar/g]])
+
+Another benefit of using literal strings is that they can be multiple lines; this allows you to pass multiple commands to a single call of vim.cmd():
+使用字面值字符串的另一个好处是它们可以是多行;这允许你在一次调用vim.cmd()时传递多个命令:
+
+vim.cmd([[
+  highlight Error guibg=red
+  highlight link Warning Error
+]])
+
+This is the converse of lua-heredoc and allows you to include Lua code in your init.vim.
+这与Lua-heredoc相反，允许你在init.vim中包含Lua代码。
+
+If you want to build your Vim command programmatically, the following form can be useful (all these are equivalent to the corresponding line above):
+如果你想以编程的方式构建你的Vim命令，下面的形式可能会有用(所有这些都相当于上面的相应行):
+
+vim.cmd.colorscheme("habamax")
+vim.cmd.highlight({ "Error", "guibg=red" })
+vim.cmd.highlight({ "link", "Warning", "Error" })
+
+Vimscript functions                  lua-guide-vim-functions
+Vimscript 函数
+
+Use vim.fn to call Vimscript functions from Lua. Data types between Lua and Vimscript are automatically converted:
+使用vim.fn从Lua调用Vimscript函数。Lua和Vimscript之间的数据类型会自动转换:
+
+print(vim.fn.printf('Hello from %s', 'Lua'))
+local reversed_list = vim.fn.reverse({ 'a', 'b', 'c' })
+print(vim.inspect(reversed_list)) -- { "c", "b", "a" }
+local function print_stdout(chan_id, data, name)
+  print(data[1])
+end
+vim.fn.jobstart('ls', { on_stdout = print_stdout })
+print(vim.fn.printf('Hello from %s', 'Lua'))
+
+This works for both builtin-functions and user-functions.
+这对内置函数和用户函数都适用。
+
+Note that hashes () are not valid characters for identifiers in Lua, so, e.g., autoload functions have to be called with this syntax:
+注意，哈希值()在Lua中不是标识符的有效字符，因此，例如，自动加载函数必须使用这种语法调用:
+#
+vim.fn['my#autoload#function']()
+
+See also:
+builtin-functions: alphabetic list of all Vimscript functions
+function-list: list of all Vimscript functions grouped by topic
+:runtime: run all Lua scripts matching a pattern in 'runtimepath'
+package.path: list of all paths searched by require()
+
+Variables                lua-guide-variables
+变量
+
+Variables can be set and read using the following wrappers, which directly correspond to their variable-scope:
+变量可以使用以下包装器进行设置和读取，这些包装器直接对应于变量的作用域:
+
+vim.g: global variables (g:)
+vim.b: variables for the current buffer (b:)
+vim.w: variables for the current window (w:)
+vim.t: variables for the current tabpage (t:)
+vim.v: predefined Vim variables (v:)
+vim.env: environment variables defined in the editor session
+
+Data types are converted automatically. For example:
+数据类型将被自动转换,例如:
+
+vim.g.some_global_variable = {
+  key1 = "value",
+  key2 = 300
+}
+print(vim.inspect(vim.g.some_global_variable))
+--> { key1 = "value", key2 = 300 }
+
+You can target specific buffers (via number), windows (via window-ID), or tabpages by indexing the wrappers:
+你可以通过索引包装器来定位特定的缓冲区(通过number)，窗口(通过window-ID)或标签页:
+vim.b[2].myvar = 1               -- set myvar for buffer number 2
+vim.w[1005].myothervar = true    -- set myothervar for window ID 1005
+
+Some variable names may contain characters that cannot be used for identifiers in Lua. You can still manipulate these variables by using the syntax
+一些变量名可能包含不能在Lua中用作标识符的字符。您仍然可以使用语法操作这些变量
+vim.g['my#variable'] = 1
+
+Note that you cannot directly change fields of array variables. This won't work:
+注意，不能直接更改数组变量的字段。这行不通:
+vim.g.some_global_variable.key2 = 400
+vim.pretty_print(vim.g.some_global_variable)
+--> { key1 = "value", key2 = 300 }
+
+Instead, you need to create an intermediate Lua table and change this:
+相反，你需要创建一个中间的Lua表并修改它:
+local temp_table = vim.g.some_global_variable
+temp_table = keys = 400
+vim.g.some_global_variable = temp_table
+vim.pretty_print(vim.g.some_global_variable)
+--> { key1 = "value", key2 = 400 }
+
+To delete a variable, simply set it to nil:
+要删除一个变量，只需将其设置为nil:
+vim.g.myvar = nil
+
+See also:
+lua-vim-variables
+
+Options                      lua-guide-options
+选项
+
+There are two complementary ways of setting options via Lua.
+通过Lua有两种相辅相成的设置选项的方法。
+
+vim.opt
+
+The most convenient way for setting global and local options, e.g., in , is through vim.opt and friends:init.luavim.opt:
+设置全局和本地选项(例如in)最方便的方法是通过vim.opt和friends:init.luavim.opt:
+
+vim.opt: behaves like :set
+vim.opt_global: behaves like :setglobal
+vim.opt_local: behaves like :setlocal
+
+For example, the Vimscript commands
+set smarttab
+set nosmarttab
+
+are equivalent to
+vim.opt.smarttab = true
+vim.opt.smarttab = false
+
+In particular, they allow an easy way to working with list-like, map-like, and set-like options through Lua tables: Instead of
+特别是，它们允许一种通过Lua表使用list-like, map-like, and set-like选项的简单方法: 你可以使用
+vim.opt.wildignore = { '*.o', '*.a', '__pycache__' }
+vim.opt.listchars = { space = '_', tab = '>~' }
+vim.opt.formatoptions = { n = true, j = true, t = true }
+代替下面的
+set wildignore=*.o,*.a,__pycache__
+set listchars=space:_,tab:>~
+set formatoptions=njt
+
+These wrappers also come with methods that work similarly to their :set+=, :set^= and :set-= counterparts in Vimscript:
+这些包装器还提供了类似于Vimscript中的:set+=，:set^=和:set-=的方法:
+vim.opt.shortmess:append({ I = true })
+vim.opt.wildignore:prepend('*.o')
+vim.opt.whichwrap:remove({ 'b', 's' })
+
+The price to pay is that you cannot access the option values directly but must use vim.opt:get():
+代价是你不能直接访问选项值，而必须使用vim.opt:get():
+print(vim.opt.smarttab)
+--> {...} (big table)
+print(vim.opt.smarttab:get())
+--> false
+vim.pretty_print(vim.opt.listchars:get())
+--> { space = '_', tab = '>~' }
+
+vim.o
+
+For this reason, there exists a more direct variable-like access using vim.o and friends, similarly to how you can get and set options via and :echo &number:let &listchars='space:_,tab:>~':
+出于这个原因，还有一个更直接的变量-就像使用vim.o和支持者访问一样，类似于如何通过and:echo &number:let &listchars='space:_，tab:&gt;~'获取和设置选项: 
+vim.o: behaves like :set
+vim.go: behaves like :setglobal
+vim.bo: for buffer-scoped options
+vim.wo: for window-scoped options
+
+For example:
+
+vim.o.smarttab = false -- :set nosmarttab
+print(vim.o.smarttab)
+--> false
+vim.o.listchars = 'space:_,tab:>~' -- :set listchars='space:_,tab:>~'
+print(vim.o.listchars)
+--> 'space:_,tab:>~'
+vim.o.isfname = vim.o.isfname .. ',@-@' -- :set isfname+=@-@
+print(vim.o.isfname)
+--> '@,48-57,/,.,-,_,+,,,#,$,%,~,=,@-@'
+vim.bo.shiftwidth = 4 -- :setlocal shiftwidth=4
+print(vim.bo.shiftwidth)
+--> 4
+
+Just like variables, you can specify a buffer number or window-ID for buffer and window options, respectively. If no number is given, the current buffer or window is used:
+就像变量一样，您可以分别为缓冲区和窗口选项指定缓冲区编号或窗口id。如果没有给出数字，则使用当前缓冲区或窗口:
+vim.bo[4].expandtab = true -- sets expandtab to true in buffer 4
+vim.wo.number = true       -- sets number to true in current window
+print(vim.wo[0].number)    --> true
+
+See also:
+lua-options
+
+Mappings                             lua-guide-mappings
+键映射
+
+You can map either Vim commands or Lua functions to key sequences.
+可以将Vim命令或Lua函数映射到键序列。
+
+Creating mappings                    lua-guide-mappings-set
+创建映射
+
+Mappings can be created using vim.keymap.set(). This function takes three mandatory arguments:
+映射可以使用vim.keymap.set()创建。这个函数有三个强制参数:
+
+{mode} is a string or a table of strings containing the mode prefix for which the mapping will take effect. The prefixes are the ones listed in :map-modes, or "!" for :map!, or empty string for :map.
+{mode}是一个包含模式前缀的字符串或字符串表，该映射将对其生效。前缀是在:map-modes中列出的，或者“!”表示:map!，或空字符串表示:map。
+{lhs} is a string with the key sequences that should trigger the mapping. An empty string is equivalent to <Nop>, which disables a key.
+{lhs}是一个包含触发映射的键序列的字符串。空字符串等价于<Nop>;禁用键。
+{rhs} is either a string with a Vim command or a Lua function that should be execucted when the {lhs} is entered.
+{rhs}是一个包含Vim命令的字符串，或者是一个应该在输入{lhs}时执行的Lua函数。
+
+Examples:
+
+-- Normal mode mapping for Vim command
+vim.keymap.set('n', '<Leader>ex1', '<cmd>echo "Example 1"<cr>')
+-- Normal and Command-line mode mapping for Vim command
+vim.keymap.set({'n', 'c'}, '<Leader>ex2', '<cmd>echo "Example 2"<cr>')
+-- Normal mode mapping for Lua function
+vim.keymap.set('n', '<Leader>ex3', vim.treesitter.start)
+-- Normal mode mapping for Lua function with arguments
+vim.keymap.set('n', '<Leader>ex4', function() print('Example 4') end)
+
+You can map functions from Lua modules via
+你可以从Lua模块映射函数
+vim.keymap.set('n', '<Leader>pl1', require('plugin').action)
+
+Note that this loads the plugin at the time the mapping is defined. If you want to defer the loading to the time when the mapping is executed (as for autoload functions), wrap it in :
+注意，这是在定义映射时加载插件。如果你想将加载延迟到映射执行的时候(就像自动加载函数一样)，将它包装在:
+function() end
+
+vim.keymap.set('n', '<Leader>pl2', function() require('plugin').action() end)
+
+The fourth, optional, argument is a table with keys that modify the behavior of the mapping such as those from :map-arguments. The following are the most useful options:
+第四个(可选的)参数是一个表，其中的键用于修改映射的行为，例如来自:map-arguments的键。以下是最有用的选项:
+
+buffer: If given, only set the mapping for the buffer with the specified number; 0 or true means the current buffer.
+buffer:如果给定，仅为缓冲区设置指定编号的映射; 0或true表示当前缓冲区。
+-- set mapping for the current buffer
+vim.keymap.set('n', '<Leader>pl1', require('plugin').action, { buffer = true })
+-- set mapping for the buffer number 4
+vim.keymap.set('n', '<Leader>pl1', require('plugin').action, { buffer = 4 })
+
+silent: If set to true, suppress output such as error messages.
+silent:如果设置为true，则抑制错误消息等输出。
+vim.keymap.set('n', '<Leader>pl1', require('plugin').action, { silent = true })
+
+expr: If set to true, do not execute the {rhs} but use the return value as input. Special keycodes are converted automatically. For example, the following mapping replaces <down> with <c-n> in the popupmenu only:
+expr:如果设置为true，则不执行{rhs}，而是使用返回值作为输入。特殊键码会自动转换。例如，下面的映射仅在弹出菜单中用<c-n>替换<down>:
+
+vim.keymap.set('c', '<down>', function()
+  if vim.fn.pumvisible() == 1 then return '<c-n>' end
+  return '<down>'
+end, { expr = true })
+
+desc: A string that is shown when listing mappings with, e.g., :map. This is useful since Lua functions as {rhs} are otherwise only listed as Lua: <number> <source file>:<line>. Plugins should therefore always use this for mappings they create.
+desc:在列出映射时显示的字符串，例如:map。这很有用，因为Lua函数{rhs}只被列在Lua:<number><source file>:<line>。因此，插件在创建映射时应该总是使用这个属性。
+vim.keymap.set('n','<Leader>pl1',require('plugin').action,{ desc = 'Execute action from plugin' })
+
+remap: By default, all mappings are nonrecursive by default (i.e., vim.keymap.set() behaves like :noremap). If the {rhs} is itself a mapping that should be executed, set remap = true:
+remap:默认情况下，所有映射都是非递归的(例如，vim.keymap.set()的行为类似于:noremap)。如果{rhs}本身是一个应该执行的映射，则设置remap = true:
+vim.keymap.set('n', '<Leader>ex1', '<cmd>echo "Example 1"<cr>')
+-- add a shorter mapping
+vim.keymap.set('n', 'e', '<Leader>ex1', { remap = true })
+
+Note: <Plug> mappings are always expanded even with the default remap = false:
+注意:<Plug>映射总是被扩展，即使使用默认的remap = false:
+vim.keymap.set('n', '[%', '<Plug>(MatchitNormalMultiBackward)')
+
+Removing mappings                lua-guide-mappings-del
+删除映射
+
+A specific mapping can be removed with vim.keymap.del():
+可以使用vim.keymap.del()删除特定的映射:
+vim.keymap.del('n', '<Leader>ex1')
+vim.keymap.del({'n', 'c'}, '<Leader>ex2', {buffer = true})
+
+See also:
+vim.api.nvim_get_keymap(): return all global mapping
+vim.api.nvim_buf_get_keymap(): return all mappings for buffer
+
+Autocommands                 lua-guide-autocommands
+自动命令
+
+An autocommand is a Vim command or a Lua function that is automatically executed whenever one or more events are triggered, e.g., when a file is read or written, or when a window is created. These are accessible from Lua through the Neovim API.
+
+Creating autocommands                lua-guide-autocommand-create
+创建自动命令
+
+Autocommands are created using vim.api.nvim_create_autocmd(), which takes two mandatory arguments:
+自动命令是使用vim.api.nvim_create_autocmd()创建的，它接受两个必选参数:
+{event}: a string or table of strings containing the event(s) which should trigger the command or function.
+{event}: 包含触发命令或函数的事件的字符串或字符串表。
+{opts}: a table with keys that control what should happen when the event(s) are triggered.
+{opts}: 一个带有键的表，用于控制触发事件时应该发生什么。
+
+The most important options are:
+最重要的选项是:
+
+pattern: A string or table of strings containing the autocmd-pattern. 
+pattern: 包含autocmd模式的字符串或字符串表。
+Note: Environment variable like $HOME and ~ are not automatically expanded; you need to explicitly use vim.fn.expand() for this.
+注意:像$HOME和~这样的环境变量不会自动展开;为此，需要显式地使用vim.fn.expand()。
+command: A string containing a Vim command.
+command: 包含Vim命令的字符串。
+callback: A Lua function.
+callback: 一个Lua函数。
+
+You must specify one and only one of command and callback. If pattern is omitted, it defaults to pattern = '*'.
+必须指定命令和回调中的一个且只能指定一个。如果省略了pattern，默认为pattern = '*'。
+Examples:
+
+vim.api.nvim_create_autocmd({"BufEnter", "BufWinEnter"}, {
+  pattern = {"*.c", "*.h"},
+  command = "echo 'Entering a C or C++ file'",
+})
+-- Same autocommand written with a Lua function instead
+-- 用Lua函数代替相同的自动命令
+vim.api.nvim_create_autocmd({"BufEnter", "BufWinEnter"}, {
+  pattern = {"*.c", "*.h"},
+  callback = function() print("Entering a C or C++ file") end,
+})
+-- User event triggered by MyPlugin
+-- 由MyPlugin触发的用户事件
+vim.api.nvim_create_autocmd("User", {
+  pattern = "MyPlugin",
+  callback = function() print("My Plugin Works!") end,
+})
+
+Neovim will always call a Lua function with a single table containing information about the triggered autocommand. The most useful keys are
+Neovim总是用一个包含触发自动命令信息的表来调用Lua函数。最有用的键是
+
+match: a string that matched the pattern (see <amatch>)
+buf: the number of the buffer the event was triggered in (see <abuf>)
+file: the file name of the buffer the event was triggered in (see <afile>)
+data: a table with other relevant data that is passed for some events
+
+For example, this allows you to set buffer-local mappings for some filetypes:
+例如，这允许你为某些文件类型设置缓冲区本地映射:
+
+vim.api.nvim.create_autocmd("FileType", {
+  pattern = "lua",
+  callback = function(args)
+    vim.keymap.set('n', 'K', vim.lsp.buf.hover, { buffer = args.buf })
+  end
+})
+
+This means that if your callback itself takes an (even optional) argument, you must wrap it in function() end to avoid an error:
+这意味着如果你的回调本身接受一个(甚至是可选的)参数，你必须将它包装在function() end中以避免错误:
+vim.api.nvim_create_autocmd('TextYankPost', {
+  callback = function() vim.highlight.on_yank() end
+})
+
+(Since unused arguments can be omitted in Lua function definitions, this is equivalent to function(args) ... end.)
+(因为在Lua函数定义中可以省略未使用的参数，这相当于function(args)… 结束。)
+
+Instead of using a pattern, you can create a buffer-local autocommand (see autocmd-buflocal) with buffer; in this case, pattern cannot be used:
+不使用模式，你可以创建一个buffer-local自动命令(参见autocmd-buflocal);在这种情况下，不能使用pattern:
+
+-- set autocommand for current buffer
+-- 设置当前缓冲区的自动命令
+vim.api.nvim_create_autocmd("CursorHold", {
+  buffer = 0,
+  callback = function() print("hold") end,
+})
+-- set autocommand for buffer number 33
+-- 为缓冲区号33设置自动命令
+vim.api.nvim_create_autocmd("CursorHold", {
+  buffer = 33,
+  callback = function() print("hold") end,
+})
+
+Similarly to mappings, you can (and should) add a description using desc:
+类似于映射，你可以(也应该)使用desc添加描述:
+
+vim.api.nvim_create_autocmd('TextYankPost', {
+  callback = function() vim.highlight.on_yank() end,
+  desc = "Briefly highlight yanked text"
+})
+
+Finally, you can group autocommands using the group key; this will be covered in detail in the next section.
+最后，您可以使用group键对自动命令进行分组;这将在下一节中详细讨论。
+
+Grouping autocommands                lua-guide-autocommands-group
+自动命令组
+
+Autocommand groups can be used to group related autocommands together; see autocmd-groups. This is useful for organizing autocommands and especially for preventing autocommands to be set multiple times.
+自动命令组可用于将相关的自动命令分组在一起; 参阅autocmd-groups。这对于组织自动命令非常有用，特别是防止自动命令被多次设置。
+
+Groups can be created with vim.api.nvim_create_augroup(). This function takes two mandatory arguments: a string with the name of a group and a table determining whether the group should be cleared (i.e., all grouped autocommands removed) if it already exists. The function returns a number that is the internal identifier of the group. Groups can be specified either by this identifier or by the name (but only if the group has been created first).
+可以使用vim.api.nvim_create_augroup()创建组。这个函数接受两个强制参数:一个包含组名的字符串和一个确定是否应该清除组(即，如果组已经存在，则删除所有分组自动命令)的表。该函数返回一个数字，该数字是组的内部标识符。组可以通过此标识符或名称指定(但仅当先创建了组时)。
+
+For example, a common Vimscript pattern for autocommands defined in files that may be reloaded is
+例如，用于在可能被重新加载的文件中定义的自动命令的通用Vimscript模式是
+
+augroup vimrc
+  " Remove all vimrc autocommands
+  autocmd!
+  au BufNewFile,BufRead *.html set shiftwidth=4
+  au BufNewFile,BufRead *.html set expandtab
+augroup END
+
+This is equivalent to the following Lua code:
+这相当于下面的Lua代码:
+
+local mygroup = vim.api.nvim_create_augroup('vimrc', { clear = true })
+vim.api.nvim_create_autocmd( {'BufNewFile', 'BufRead' }, {
+  pattern = '*.html',
+  group = mygroup,
+  cmd = 'set shiftwidth=4',
+})
+vim.api.nvim_create_autocmd( {'BufNewFile', 'BufRead' }, {
+  pattern = '*.html',
+  group = 'vimrc',  -- equivalent to group=mygroup
+  cmd = 'set expandtab',
+})
+
+Autocommand groups are unique for a given name, so you can reuse them, e.g., in a different file:
+自动命令组对于给定的名称是唯一的，所以你可以在不同的文件中重用它们，例如:
+
+local mygroup = vim.api.nvim_create_augroup('vimrc', { clear = false })
+vim.api.nvim_create_autocmd( {'BufNewFile', 'BufRead' }, {
+  pattern = '*.html',
+  group = mygroup,
+  cmd = 'set shiftwidth=4',
+})
+
+Deleting autocommands            lua-guide-autocommands-delete
+删除自动命令
+
+You can use nvim_clear_autocmds() to remove autocommands. This function takes a single mandatory argument that is a table of keys describing the autocommands that are to be removed:
+可以使用nvim_clear_autocmds()删除自动命令。这个函数有一个必选参数，这个参数是一个描述要删除的自动命令的键表:
+
+vim.api.
+-- Delete all BufEnter and InsertLeave autocommands
+vim.api.nvim_clear_autocmds({event = {"BufEnter", "InsertLeave"}})
+-- Delete all autocommands that uses "*.py" pattern
+vim.api.nvim_clear_autocmds({pattern = "*.py"})
+-- Delete all autocommands in group "scala"
+vim.api.nvim_clear_autocmds({group = "scala"})
+-- Delete all ColorScheme autocommands in current buffer
+vim.api.nvim_clear_autocmds({event = "ColorScheme", buffer = 0 })
+
+Note: Autocommands in groups will only be removed if the group key is specified, even if another option matches it.
+注意:组中的自动命令仅在指定了组键时才会被删除，即使其他选项与之匹配。
+
+See also
+nvim_get_autocmds(): return all matching autocommands
+nvim_exec_autocmds(): execute all matching autocommands
+
+User commands                        lua-guide-usercommands
+用户命令
+
+user-commands are custom Vim commands that call a Vimscript or Lua function. Just like built-in commands, they can have arguments, act on ranges, or have custom completion of arguments. As these are most useful for plugins, we will cover only the basics of this advanced topic.
+user-commands是调用Vimscript或Lua函数的自定义Vim命令。就像内置命令一样，它们可以有参数、作用范围或自定义参数补全。由于这些对插件最有用，所以我们将只介绍这个高级主题的基础知识。
+
+Creating user commands               lua-guide-usercommands-create
+创建用户命令
+
+User commands can be created through the Neovim API with vim.api.nvim_create_user_command(). This function takes three mandatory arguments:
+可以使用vim.api.nvim_create_user_command()通过Neovim API创建用户命令。这个函数有三个强制参数:
+
+a string that is the name of the command (which must start with an uppercase letter to distinguish it from builtin commands);
+作为命令名称的字符串(必须以大写字母开头，以区别于内置命令);
+a string containing Vim commands or a Lua function that is executed when the command is invoked;
+包含Vim命令或在调用命令时执行的Lua函数的字符串;
+a table with command-attributes; in addition, it can contain the keys desc (a string describing the command); force (set to false to avoid replacing an already existing command with the same name), and preview (a Lua function that is used for :command-preview).
+带有命令属性的表; 此外，它可以包含键desc(描述命令的字符串); force(设置为false以避免替换已经存在的同名命令)和preview(一个Lua函数，用于:command-preview)。
+Example:
+
+vim.api.nvim_create_user_command('Test', 'echo "It works!"', {})
+vim.cmd.Test()
+--> It works!
+
+(Note that the third argument is mandatory even if no attributes are given.)
+(注意，即使没有给出属性，第三个参数也是强制性的。)
+
+Lua functions are called with a single table argument containing arguments and modifiers. The most important are:
+Lua函数调用时使用一个包含参数和修饰符的表参数。最重要的是:
+
+name: a string with the command name
+fargs: a table containing the command arguments split by whitespace (see <f-args>)
+bang: true if the command was executed with a ! modifier (see <bang>)
+line1: the starting line number of the command range (see <line1>)
+line2: the final line number of the command range (see <line2>)
+range: the number of items in the command range: 0, 1, or 2 (see <range>)
+count: any count supplied (see <count>)
+smods: a table containing the command modifiers (see <mods>)
+
+For example:
+
+vim.api.nvim_create_user_command('Upper',
+  function(opts)
+    print(string.upper(opts.fargs[1]))
+  end,
+  { nargs = 1 })
+vim.cmd.Upper('foo')
+--> FOO
+
+The attribute can take a Lua function in addition to the attributes listed in :command-complete.complete 
+除了command-complete.complete中列出的属性外，该属性还可以接受一个Lua函数
+
+vim.api.nvim_create_user_command('Upper',
+  function(opts)
+    print(string.upper(opts.fargs[1]))
+  end,
+  { nargs = 1,
+    complete = function(ArgLead, CmdLine, CursorPos)
+      -- return completion candidates as a list-like table
+      return { "foo", "bar", "baz" }
+    end,
+})
+
+Buffer-local user commands are created with vim.api.nvim_buf_create_user_command(). Here the first argument is the buffer number (0 being the current buffer); the remaining arguments are the same as for nvim_create_user_command():
+缓冲区本地用户命令是使用vim.api.nvim_buf_create_user_command()创建的。这里的第一个参数是缓冲区号(0是当前缓冲区);其余参数与nvim_create_user_command()相同:
+
+vim.api.nvim_buf_create_user_command(0, 'Upper',
+  function(opts)
+    print(string.upper(opts.fargs[1]))
+  end,
+  { nargs = 1 })
+
+Deleting user commands           lua-guide-usercommands-delete
+删除用户命令
+
+User commands can be deleted with vim.api.nvim_del_user_command(). The only argument is the name of the command:
+可以使用vim.api.nvim_del_user_command()删除用户命令。唯一的参数是命令的名称:
+vim.api.nvim_del_user_command('Upper')
+
+To delete buffer-local user commands use vim.api.nvim_buf_del_user_command(). Here the first argument is the buffer number (0 being the current buffer), and second is command name: 
+删除缓冲区本地用户命令使用vim.api.nvim_buf_del_user_command()。这里的第一个参数是缓冲区号(0是当前缓冲区)，第二个参数是命令名:
+vim.api.nvim_buf_del_user_command(4, 'Upper')
+
+Credits              lua-guide-credits
+做出贡献
+This guide is in large part taken from nanotee's Lua guide:
+本指南在很大程度上取自nanotee的Lua指南:
+https://github.com/nanotee/nvim-lua-guide
+Thank you @nanotee!
